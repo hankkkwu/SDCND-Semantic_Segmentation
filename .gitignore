@@ -10,6 +10,7 @@ __pycache__/
 .Python
 env/
 build/
+data_road/
 develop-eggs/
 dist/
 downloads/
@@ -20,10 +21,12 @@ lib64/
 parts/
 sdist/
 var/
+vgg/
 wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.pdf
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
