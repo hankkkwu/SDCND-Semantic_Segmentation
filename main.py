@@ -45,7 +45,7 @@ def load_vgg(sess, vgg_path):
     layer7_out = graph.get_tensor_by_name(vgg_layer7_out_tensor_name)
 
     return image_input, keep_prob, layer3_out, layer4_out, layer7_out
-print("first test:")
+
 tests.test_load_vgg(load_vgg, tf)
 
 
@@ -68,23 +68,37 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     The reason of doing it this way instead of using strides of 8, 16, 32 separately for each layer is to save the amount of computations.
     As in the end we are summing them together it's more efficient to sum before upsampling than after.
 
-    The kernel size seems more of a design choice, thogh it is not mentioned in the paper directly, the paper provides a link to their
-    [Caffe implementation](https://github.com/shelhamer/fcn.berkeleyvision.org/blob/master/voc-fcn8s-atonce/net.py#L60), which uses a
-    kernel size eof 4 for stride 2 layer.
+    for example, say image size = (224,224):
+    encoder: (224,224) ->pool1-> (112,112) ->pool2-> (56,56) ->pool3-> (28,28) ->pool4-> (14,14) ->pool5-> (7,7)
+    decoder: (7,7) ->upsampling1(stride=2)-> (14,14) ->upsampling2(stride=2)-> (28,28) ->final_upsampling(stride=8)-> (224,224)
+
+    The kernel size seems more of a design choice, though it is not mentioned in the paper directly, the paper provides a link to their
+            [Caffe implementation](https://github.com/shelhamer/fcn.berkeleyvision.org/blob/master/voc-fcn8s-atonce/net.py#L60), which uses a
+    kernel size eof 4 for stride 2 layer. Also note that the outputs of pooling layers 3 and 4 are scaled before they are fed into the
+    1x1 convolutions.
     '''
     # TODO: Implement function
+    # Reduce the number of filters from 4096 to 2
     conv_1x1 = tf.layers.conv2d(vgg_layer7_out, num_classes, kernel_size=1, strides=(1,1), name='conv_1x1')
+    # Updampling with the same filters as pool4 layer
     upsampling1 = tf.layers.conv2d_transpose(conv_1x1, vgg_layer4_out.get_shape().as_list()[-1], kernel_size=4,
                                              strides=(2,2), padding='SAME', name='upsampling_1')
+    # Scale the pool4 layer
     pool4_out_scaled = tf.multiply(vgg_layer4_out, 0.01, name='pool4_out_scaled')
+    # Apply skip connection
     skip1 = tf.add(upsampling1, pool4_out_scaled, name='skip_1')
+
+    # Updampling skip1 layer with the same filters as pool3 layer
     upsampling2 = tf.layers.conv2d_transpose(skip1, vgg_layer3_out.get_shape().as_list()[-1], kernel_size=4,
                                              strides=(2,2), padding='SAME', name='upsampling_2')
+    # Scale the pool3 layer
     pool3_out_scaled = tf.multiply(vgg_layer3_out, 0.0001, name='pool3_out_scaled')
+    # Apply skip connection
     skip2 = tf.add(upsampling2, pool3_out_scaled, name='skip_2')
+    # Final upsampling to the same size as input
     output = tf.layers.conv2d_transpose(skip2, num_classes, kernel_size=16, strides=(8,8), padding='SAME', name='output')
     return output
-print("second test")
+
 tests.test_layers(layers)
 
 
@@ -98,13 +112,21 @@ def optimize(nn_last_layer, correct_label, learning_rate, num_classes):
     :return: Tuple of (logits, train_op, cross_entropy_loss)
     """
     # TODO: Implement function
+    # Reshape logits and correct_label from 4D to 2D
     logits = tf.reshape(nn_last_layer, (-1, num_classes), name='fcn_logits')
     reshaped_label = tf.reshape(correct_label, (-1, num_classes))
+
     cross_entropy_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=logits, labels=reshaped_label), name='fcn_loss')
+
+    # Add regularization
+    reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+    reg_constant = 0.001
+    loss = cross_entropy_loss + reg_constant * sum(reg_losses)
+
     # Use Adam optimizer that minimize the loss
     train_op = tf.train.AdamOptimizer(learning_rate = learning_rate).minimize(cross_entropy_loss, name='fcn_train_op')
-    return logits, train_op, cross_entropy_loss
-print("third test:")
+    return logits, train_op, loss
+
 tests.test_optimize(optimize)
 
 
@@ -124,6 +146,8 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
     :param learning_rate: TF Placeholder for learning rate
     """
     # TODO: Implement function
+    init = tf.global_variables_initializer()
+    sess.run(init)
     print("training.....")
     print()
     for epoch in range(epochs):
@@ -131,10 +155,10 @@ def train_nn(sess, epochs, batch_size, get_batches_fn, train_op, cross_entropy_l
         for batch_x, batch_y in get_batches_fn(batch_size):
             _, loss = sess.run([train_op, cross_entropy_loss], feed_dict={input_image:batch_x, correct_label:batch_y, keep_prob:0.6, learning_rate:0.001})
             total_loss += loss
-        print("EPOCH {} ...".format(epoch))
+        print("EPOCH {} ...".format(epoch+1))
         print("Total loss: {:.3f}".format(total_loss))
         print()
-print("forth test:")
+
 tests.test_train_nn(train_nn)
 
 
@@ -152,8 +176,6 @@ def run():
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
 
-    init = tf.global_variables_initializer()
-
     with tf.Session() as sess:
         # Path to vgg model
         vgg_path = os.path.join(data_dir, 'vgg')
@@ -163,7 +185,6 @@ def run():
         # OPTIONAL: Augment Images for better results
         #  https://datascience.stackexchange.com/questions/5224/how-to-prepare-augment-images-for-neural-network
 
-        sess.run(init)
         # TODO: Build NN using load_vgg, layers, and optimize function
         image_input, keep_prob, layer3_out, layer4_out, layer7_out = load_vgg(sess, vgg_path)
         last_layer = layers(layer3_out, layer4_out, layer7_out, num_classes)
@@ -175,11 +196,18 @@ def run():
         logits, train_op, loss = optimize(last_layer, correct_label, learning_rate, num_classes)
 
         # TODO: Train NN using the train_nn function
+        saver = tf.train.Saver()
         epochs = 50
         batch_size = 8
-
         train_nn(sess, epochs, batch_size, get_batches_fn, train_op, loss, image_input, correct_label, keep_prob, learning_rate)
+        try:
+            saver
+        except NameError:
+            saver = tf.train.Saver()
+        saver.save(sess, './model.ckpt')
+        print("Model saved")
 
+        # saver.restore(sess, './model.ckpt')
         # TODO: Save inference data using helper.save_inference_samples
         helper.save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, image_input)
 
