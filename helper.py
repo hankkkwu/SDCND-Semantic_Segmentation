@@ -10,7 +10,7 @@ import re
 import random
 import numpy as np
 import os.path
-import scipy.misc
+#import scipy.misc
 import shutil
 import zipfile
 import time
@@ -18,6 +18,8 @@ import tensorflow as tf
 from glob import glob
 from urllib.request import urlretrieve
 from tqdm import tqdm
+from PIL import Image
+import imageio
 
 
 class DLProgress(tqdm):
@@ -96,6 +98,9 @@ def gen_batch_function(data_folder, image_shape):
 			for path in glob(os.path.join(data_folder, 'gt_image_2', '*_road_*.png'))}
 		background_color = np.array([255, 0, 0])
 
+		height = image_shape[0]
+		width = image_shape[1]
+
 		# Shuffle training data
 		random.shuffle(image_paths)
 		# Loop through batches and grab images, yielding each batch
@@ -105,8 +110,14 @@ def gen_batch_function(data_folder, image_shape):
 			for image_file in image_paths[batch_i:batch_i+batch_size]:
 				gt_image_file = label_paths[os.path.basename(image_file)]
 				# Re-size to image_shape
-				image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
-				gt_image = scipy.misc.imresize(scipy.misc.imread(gt_image_file), image_shape)
+				'''
+				imresize is deprecated! imresize is deprecated in SciPy 1.0.0, and will be removed in 1.3.0.
+				Use Pillow instead: numpy.array(Image.fromarray(arr).resize())
+				'''
+				#image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
+				#gt_image = scipy.misc.imresize(scipy.misc.imread(gt_image_file), image_shape)
+				image = np.array(Image.fromarray(np.array(Image.open(image_file))).resize((width, height)))   # resize((width, height))
+				gt_image = np.array(Image.fromarray(np.array(Image.open(gt_image_file))).resize((width, height)))   # resize((width, height))
 
 				# Create "one-hot-like" labels by class
 				gt_bg = np.all(gt_image == background_color, axis=2)
@@ -131,21 +142,30 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
 	:param image_shape: Tuple - Shape of image
 	:return: Output for for each test image
 	"""
+	height = image_shape[0]
+	width = image_shape[1]
 	for image_file in glob(os.path.join(data_folder, 'image_2', '*.png')):
-		image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
+		image = np.array(Image.fromarray(np.array(Image.open(image_file))).resize((width, height)))   # resize((width, height))
+		#image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
 
 		# Run inference
 		im_softmax = sess.run(
 			[tf.nn.softmax(logits)],
 			{keep_prob: 1.0, image_pl: [image]})
 		# Splice out second column (road), reshape output back to image_shape
-		im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
+		im_softmax = im_softmax[0][:, 1].reshape(height, width)   # reshape(height, width)
 		# If road softmax > 0.5, prediction is road
-		segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
+		segmentation = (im_softmax > 0.5).reshape(height, width, 1)   # reshape(height, width)
 		# Create mask based on segmentation to apply to original image
 		mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
-		mask = scipy.misc.toimage(mask, mode="RGBA")
-		street_im = scipy.misc.toimage(image)
+		'''
+		toimage is deprecated! toimage is deprecated in SciPy 1.0.0, and will be removed in 1.2.0.
+		Use Pillow’s Image.fromarray directly instead.
+		'''
+		#mask = scipy.misc.toimage(mask, mode="RGBA")
+		#street_im = scipy.misc.toimage(image)
+		mask = Image.fromarray(mask, mode="RGBA")
+		street_im = Image.fromarray(image)
 		street_im.paste(mask, box=None, mask=mask)
 
 		yield os.path.basename(image_file), np.array(street_im)
@@ -173,4 +193,8 @@ def save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_p
 	image_outputs = gen_test_output(
 		sess, logits, keep_prob, input_image, os.path.join(data_dir, 'data_road/testing'), image_shape)
 	for name, image in image_outputs:
-		scipy.misc.imsave(os.path.join(output_dir, name), image)
+		'''
+		imsave is deprecated! imsave is deprecated in SciPy 1.0.0, and will be removed in 1.2.0. Use imageio.imwrite instead.
+		'''
+		#scipy.misc.imsave(os.path.join(output_dir, name), image)
+		imageio.imwrite(os.path.join(output_dir, name), image)
