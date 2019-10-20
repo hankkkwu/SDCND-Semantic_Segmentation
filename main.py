@@ -73,28 +73,33 @@ def layers(vgg_layer3_out, vgg_layer4_out, vgg_layer7_out, num_classes):
     decoder: (7,7) ->upsampling1(stride=2)-> (14,14) ->upsampling2(stride=2)-> (28,28) ->final_upsampling(stride=8)-> (224,224)
 
     The kernel size seems more of a design choice, though it is not mentioned in the paper directly, the paper provides a link to their
-            [Caffe implementation](https://github.com/shelhamer/fcn.berkeleyvision.org/blob/master/voc-fcn8s-atonce/net.py#L60), which uses a
+    [Caffe implementation](https://github.com/shelhamer/fcn.berkeleyvision.org/blob/master/voc-fcn8s-atonce/net.py#L60), which uses a
     kernel size eof 4 for stride 2 layer. Also note that the outputs of pooling layers 3 and 4 are scaled before they are fed into the
     1x1 convolutions.
     '''
+
     # TODO: Implement function
     # Reduce the number of filters from 4096 to 2
-    conv_1x1 = tf.layers.conv2d(vgg_layer7_out, num_classes, kernel_size=1, strides=(1,1), name='conv_1x1')
+    conv_1x1_layer7 = tf.layers.conv2d(vgg_layer7_out, num_classes, kernel_size=1, strides=(1,1), name='conv_1x1_layer7')
     # Updampling with the same filters as pool4 layer
-    upsampling1 = tf.layers.conv2d_transpose(conv_1x1, vgg_layer4_out.get_shape().as_list()[-1], kernel_size=4,
+    upsampling1 = tf.layers.conv2d_transpose(conv_1x1_layer7, num_classes, kernel_size=4,
                                              strides=(2,2), padding='SAME', name='upsampling_1')
     # Scale the pool4 layer
     pool4_out_scaled = tf.multiply(vgg_layer4_out, 0.01, name='pool4_out_scaled')
+    # Use 1x1 convolution to reduce the computational cost
+    conv_1x1_pool4 = tf.layers.conv2d(pool4_out_scaled, num_classes, kernel_size=1, strides=(1,1), name='conv_1x1_pool4')
     # Apply skip connection
-    skip1 = tf.add(upsampling1, pool4_out_scaled, name='skip_1')
+    skip1 = tf.add(upsampling1, conv_1x1_pool4, name='skip_1')
 
     # Updampling skip1 layer with the same filters as pool3 layer
-    upsampling2 = tf.layers.conv2d_transpose(skip1, vgg_layer3_out.get_shape().as_list()[-1], kernel_size=4,
+    upsampling2 = tf.layers.conv2d_transpose(skip1, num_classes, kernel_size=4,
                                              strides=(2,2), padding='SAME', name='upsampling_2')
     # Scale the pool3 layer
     pool3_out_scaled = tf.multiply(vgg_layer3_out, 0.0001, name='pool3_out_scaled')
+    # Use 1x1 convolution to reduce the computational cost
+    conv_1x1_pool4 = tf.layers.conv2d(pool3_out_scaled, num_classes, kernel_size=1, strides=(1,1), name='conv_1x1_pool3')
     # Apply skip connection
-    skip2 = tf.add(upsampling2, pool3_out_scaled, name='skip_2')
+    skip2 = tf.add(upsampling2, conv_1x1_pool4, name='skip_2')
     # Final upsampling to the same size as input
     output = tf.layers.conv2d_transpose(skip2, num_classes, kernel_size=16, strides=(8,8), padding='SAME', name='output')
     return output
