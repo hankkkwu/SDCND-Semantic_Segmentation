@@ -164,7 +164,7 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
 		'''
 		#mask = scipy.misc.toimage(mask, mode="RGBA")
 		#street_im = scipy.misc.toimage(image)
-		mask = Image.fromarray(mask, mode="RGBA")
+		mask = Image.fromarray(mask.astype('uint8'), mode="RGBA")
 		street_im = Image.fromarray(image)
 		street_im.paste(mask, box=None, mask=mask)
 
