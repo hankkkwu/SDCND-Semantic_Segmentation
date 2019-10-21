@@ -172,6 +172,7 @@ def run():
     image_shape = (160, 576)  # KITTI dataset uses 160x576 images
     data_dir = './data'
     runs_dir = './runs'
+    export_dir = './saved_model'
     tests.test_for_kitti_dataset(data_dir)
 
     # Download pretrained vgg model
@@ -180,6 +181,9 @@ def run():
     # OPTIONAL: Train and Inference on the cityscapes dataset instead of the Kitti dataset.
     # You'll need a GPU with at least 10 teraFLOPS to train on.
     #  https://www.cityscapes-dataset.com/
+
+    # Save model and freeze it later
+    builder = tf.saved_model.builder.SavedModelBuilder(export_dir)
 
     with tf.Session() as sess:
         # Path to vgg model
@@ -205,11 +209,15 @@ def run():
         epochs = 50
         batch_size = 8
         train_nn(sess, epochs, batch_size, get_batches_fn, train_op, loss, image_input, correct_label, keep_prob, learning_rate)
+
+        builder.add_meta_graph_and_variables(sess, ['carnd'])
+        builder.save()
+
         try:
             saver
         except NameError:
             saver = tf.train.Saver()
-        saver.save(sess, './model.ckpt')
+        saver.save(sess, './saved_model/model.ckpt')
         print("Model saved")
 
         # saver.restore(sess, './model.ckpt')
